@@ -1,0 +1,12 @@
+**/.venv
+**/node_modules
+**/__pycache__
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+backend/storage
+ml/datasets/synthetic/*.json*
+ml/datasets/synthetic/*.csv
+ml/datasets/synthetic/*.xml
+.env
+.git

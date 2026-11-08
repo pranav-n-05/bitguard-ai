@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+node_modules/
+dist/
+frontend/test-results/
+frontend/playwright-report/
+ml/models/*.joblib
+storage/
+*.log
+.DS_Store
+# generated synthetic data (reproducible: scripts/generate_synthetic.py --seed 42)
+ml/datasets/synthetic/*
+!ml/datasets/synthetic/.gitkeep
+backups/

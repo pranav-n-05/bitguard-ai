@@ -1,0 +1,53 @@
+# Render Blueprint: New + > Blueprint > select this repo.
+# After the first deploy open the service URL; sign in with the admin email/password you entered.
+databases:
+  - name: bitguard-db
+    databaseName: bitguard
+    user: bitguard
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+
+services:
+  - type: keyvalue
+    name: bitguard-redis
+    plan: free            # Celery broker + rate-limit counters only; nothing here needs persistence
+    maxmemoryPolicy: noeviction
+    ipAllowList: []       # private network only
+
+  - type: web
+    name: bitguard
+    runtime: docker
+    dockerfilePath: ./infrastructure/docker/render.Dockerfile
+    dockerContext: .
+    plan: standard        # 2 GB RAM: pandas/scikit-learn/SHAP pipeline + Celery + API; "starter" (512 MB) risks OOM on large datasets
+    healthCheckPath: /api/v1/health
+    disk:
+      name: bitguard-data
+      mountPath: /data    # uploads, reports, model artifacts survive deploys
+      sizeGB: 10
+    envVars:
+      - key: BITGUARD_ENV
+        value: production
+      - key: BITGUARD_DATABASE_URL
+        fromDatabase:
+          name: bitguard-db
+          property: connectionString
+      - key: BITGUARD_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: bitguard-redis
+          property: connectionString
+      - key: BITGUARD_JWT_SECRET
+        generateValue: true
+      - key: BITGUARD_STORAGE_DIR
+        value: /data/storage
+      - key: BITGUARD_MODEL_DIR
+        value: /data/models
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"        # trust Render's load balancer for X-Forwarded-For (real client IPs for rate limiting)
+      - key: BITGUARD_MAX_UPLOAD_MB
+        value: "100"
+      - key: BITGUARD_BOOTSTRAP_ADMIN_EMAIL
+        sync: false       # you will be prompted for these on first deploy
+      - key: BITGUARD_BOOTSTRAP_ADMIN_PASSWORD
+        sync: false

@@ -1,0 +1,89 @@
+name: bitguard
+
+x-backend-env: &backend-env
+  BITGUARD_ENV: ${BITGUARD_ENV:-production}
+  BITGUARD_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bitguard}:${POSTGRES_PASSWORD:-bitguard}@db:5432/${POSTGRES_DB:-bitguard}
+  BITGUARD_REDIS_URL: redis://redis:6379/0
+  BITGUARD_JWT_SECRET: ${BITGUARD_JWT_SECRET:?set BITGUARD_JWT_SECRET in .env}
+  BITGUARD_STORAGE_DIR: /data/storage
+  BITGUARD_MODEL_DIR: /data/models
+  BITGUARD_CORS_ORIGINS: ${BITGUARD_CORS_ORIGINS:-http://localhost:8080}
+  BITGUARD_BOOTSTRAP_ADMIN_EMAIL: ${BITGUARD_BOOTSTRAP_ADMIN_EMAIL:-admin@bitguard.local}
+  BITGUARD_BOOTSTRAP_ADMIN_PASSWORD: ${BITGUARD_BOOTSTRAP_ADMIN_PASSWORD:?set BITGUARD_BOOTSTRAP_ADMIN_PASSWORD in .env}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bitguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bitguard}
+      POSTGRES_DB: ${POSTGRES_DB:-bitguard}
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bitguard}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  db-test:
+    profiles: ["test"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bitguard
+      POSTGRES_PASSWORD: bitguard
+      POSTGRES_DB: bitguard_test
+    ports: ["5433:5432"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bitguard"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    profiles: ["app"]
+    build: { context: ., dockerfile: infrastructure/docker/backend.Dockerfile }
+    environment: *backend-env
+    command: ["sh", "-c", "alembic upgrade head && python -m app.bootstrap && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers"]
+    volumes: [storage:/data/storage, models:/data/models]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    profiles: ["app"]
+    build: { context: ., dockerfile: infrastructure/docker/backend.Dockerfile }
+    environment: *backend-env
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]
+    volumes: [storage:/data/storage, models:/data/models]
+    depends_on:
+      backend: { condition: service_healthy }
+
+  api-gateway:
+    profiles: ["app"]
+    build: { context: ., dockerfile: infrastructure/docker/frontend.Dockerfile }
+    ports: ["8080:80"]
+    depends_on:
+      backend: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
+  storage:
+  models:
